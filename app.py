@@ -5,6 +5,7 @@ from PIL import Image
 import json
 from streamlit_image_coordinates import streamlit_image_coordinates
 from streamlit_cropper import st_cropper
+from streamlit_option_menu import option_menu
 
 st.set_page_config(page_title="Stationery Counter", layout="wide")
 
@@ -321,289 +322,330 @@ def count_with_rotated_ncc_fast_filter_streamlit(img, template, threshold):
 # UI - MAIN MODE SELECTION
 # ==============================================================================
 
-st.title("📊 Stationery Object Counter")
-# st.camera_input("Please capture")
-# Main mode selection
-main_mode = st.radio(
-    "Select Main Mode",
-    ["Mode 1: My Object Counter", "Mode 2: NCC Template Matching"],
-    horizontal=True,
-    key="main_mode_selector"
-)
 
-if main_mode == "Mode 1: My Object Counter":
-    # Sub-mode selection for Mode 1
-    sub_mode = st.radio(
-        "Select Counting Method",
-        ["Sub-mode 1: Light/White Background (Auto-threshold)", "Sub-mode 2: Color Picker (Click on image to select color)"],
-        horizontal=True,
-        key="sub_mode_selector"
+st.title("📊 Stationery Object Counter")
+st.markdown("---")
+
+# --- 1. SIDEBAR SETUP ---
+
+with st.sidebar:
+    st.title("Select Algorithm")
+    
+    
+    # 2. Create the menu, but set menu_title to None!
+    main_mode = option_menu(
+        menu_title=None,  # <--- THIS completely removes the stubborn title and its icon
+        options=[
+            "Hybrid Multi-Threshold Segmentation with Blob Analysis", 
+            "HSV Color Segmentation with Contour", 
+            "NCC Template Matching"
+        ],
+        default_index=0,
+        styles={
+            "container": {"padding": "0!important", "background-color": "transparent"},
+            "icon": {"color": "white", "font-size": "16px"}, 
+            "nav-link": {
+                "font-size": "14px", 
+                "text-align": "left", 
+                "margin":"5px 0px", 
+                "padding": "10px",
+                "border-radius": "10px", 
+            },
+            "nav-link-selected": {"background-color": "#656B66"},
+        }
     )
     
-    # Use a dynamic key for file uploader that changes with mode
-    upload_key = f"file_uploader_{main_mode}_{sub_mode}"
-    uploaded = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg", "bmp", "webp"], key=upload_key)
+    st.markdown("---")
     
-    # Clear mode 2 color selection when sub-mode changes
-    if "previous_sub_mode" not in st.session_state:
-        st.session_state.previous_sub_mode = sub_mode
-    elif st.session_state.previous_sub_mode != sub_mode:
-        st.session_state.selected_hsv_mode2 = None
-        st.session_state.color_picked_mode2 = False
-        st.session_state.previous_sub_mode = sub_mode
+# --- 2. MAIN PAGE CONTENT ---
+
+# Clear color selection when switching between any modes
+if "previous_main_mode" not in st.session_state:
+    st.session_state.previous_main_mode = main_mode
+elif st.session_state.previous_main_mode != main_mode:
+    st.session_state.selected_hsv_mode2 = None
+    st.session_state.color_picked_mode2 = False
+    st.session_state.previous_main_mode = main_mode
+
+# ==============================================================================
+# MODE 1: HYBRID MULTI-THRESHOLD
+# ==============================================================================
+if main_mode == "Hybrid Multi-Threshold Segmentation with Blob Analysis":
     
+    st.header("💡 Hybrid Multi-Threshold Segmentation")
+    st.markdown("""
+    ### Instructions:
+    1. Select an image using the buttons below.
+    2. The app will automatically detect objects based on brightness and contrast.
+    3. Adjust the parameters in the sidebar to refine the bounding boxes.
+    """)
+    st.markdown("---")
+    
+    input_method = st.radio("📷 Choose Image Source:", ["📁 Upload File", "📸 Take a Photo"], horizontal=True, key="input_m1")
+    
+    
+    uploaded = None
+    if input_method == "📁 Upload File":
+        uploaded = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg", "bmp", "webp"], key="file_m1")
+    else:
+        uploaded = st.camera_input("Take a picture", key="cam_m1")
+        
+     
+    st.markdown("---")
     if uploaded:
-        # Save uploaded image temporarily
         temp_image_path = f"temp_{uploaded.name}"
         with open(temp_image_path, "wb") as f:
             f.write(uploaded.getbuffer())
         
-        # Load image for display
         bgr_original = to_bgr(Image.open(uploaded))
-        H, W = bgr_original.shape[:2]
+        img_id = f"{uploaded.name}_{uploaded.size}"
         
-        # ======================================================================
-        # SUB-MODE 1: Light/White Background
-        # ==========================================s============================
-        if sub_mode == "Sub-mode 1: Light/White Background (Auto-threshold)":
-            
-            if "current_file_mode1" not in st.session_state or st.session_state.current_file_mode1 != uploaded.name:
-                st.session_state.current_file_mode1 = uploaded.name
-                st.session_state.reset_version_mode1 += 1
-                st.rerun()
-            
-            v = st.session_state.reset_version_mode1
-            
-            with st.sidebar:
-                st.header("⚙️ Parameters")
-                s_thresh = st.slider("Saturation threshold", 10, 120, 30, 5, key=f"sat_{v}")
-                b_size = st.slider("Blur size", 3, 31, 5, 2, key=f"blur_{v}")
-                a_block = st.slider("Adaptive block size", 11, 201, 61, 10, key=f"adapt_b_{v}")
-                a_c = st.slider("Adaptive C offset", 2, 25, 6, 1, key=f"adapt_c_{v}")
-                c_k = st.slider("Close kernel (px)", 3, 40, 11, 2, key=f"close_k_{v}")
-                c_iter = st.slider("Close iterations", 1, 5, 2, 1, key=f"close_i_{v}")
-                e_k = st.slider("Erode kernel (px)", 1, 25, 5, 2, key=f"erode_k_{v}")
-                m_area = st.slider("Min object area (px²)", 200, 30000, 1500, 200, key=f"min_a_{v}")
-                ma_ratio = st.slider("Max area ratio", 0.02, 0.90, 0.35, 0.01, key=f"max_r_{v}")
-                m_sol = st.slider("Min solidity", 0.10, 0.95, 0.35, 0.05, key=f"min_s_{v}")
-                m_ar = st.slider("Max aspect ratio", 1.0, 30.0, 15.0, 0.5, key=f"max_ar_{v}")
-                b_pad = st.slider("Box padding (px)", 0, 40, 8, 1, key=f"pad_{v}")
-            
-            # Define params_mode1 HERE (inside the sub-mode 1 block)
-            params_mode1 = {
-                "sat_thresh": s_thresh, 
-                "blur": b_size, 
-                "adapt_block": a_block, 
-                "adapt_c": a_c,
-                "close_k": c_k, 
-                "close_iter": c_iter, 
-                "erode_k": e_k, 
-                "min_area": m_area,
-                "max_area_ratio": ma_ratio, 
-                "min_solidity": m_sol, 
-                "max_ar": m_ar, 
-                "box_pad": b_pad
-            }
-            
-            # Use blob detection instead of original
-            boxes, mask = count_objects_mode1_submode1_blobs(bgr_original, params_mode1)
-            
-            st.header("Results")
-            result = bgr_original.copy()
-            for i, (x, y, w, h) in enumerate(boxes):
-                cv2.rectangle(result, (x, y), (x + w, y + h), (0, 200, 80), 2)
-                cv2.putText(result, f"#{i + 1}", (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 80), 2)
-            
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                st.image(to_pil_rgb(result), caption=f"Count: {len(boxes)}", width=550)
-                if st.checkbox("Show foreground mask (debug)", key=f"debug_{v}"):
-                    st.image(mask, caption="Processing Mask", width=550)
-            with col2:
-                st.success(f"### TOTAL COUNT: {len(boxes)}")
-            
-            st.markdown("---")
-            c1, c2, c3 = st.columns(3)
-            
-            if c1.button("🔄 Reset Parameters", use_container_width=True):
-                trigger_reset_mode1()
-                st.rerun()
-            
-            if c2.button("📄 Export JSON", use_container_width=True):
-                st.download_button("Download", json.dumps({"count": len(boxes)}), "count.json")
-            
-            if c3.button("ℹ️ Help", use_container_width=True):
-                st.info("Sliders update LIVE. Reset moves them back to defaults.")
-                
-            
-            st.markdown("---")
-            st.header("🔴 Live Camera Feed (Local Testing)")
-            st.warning("Note: This will only work if you are running the app locally on your computer.")
-            
-            # Checkbox to start/stop the camera
-            run_camera = st.checkbox("Start Live Webcam", key="run_cam_mode1")
-            
-            # Create an empty placeholder where the video frames will go
-            FRAME_WINDOW = st.empty()
-            
-            if run_camera:
-                # Open the default webcam (0)
-                cap = cv2.VideoCapture(0)
-                
-                if not cap.isOpened():
-                    st.error("Could not access webcam. Make sure no other app is using it.")
-                
-                while run_camera:
-                    ret, frame = cap.read()
-                    if not ret:
-                        st.error("Failed to grab frame.")
-                        break
-                    
-                    # 1. Run your detection function on the live frame
-                    live_boxes, _ = count_objects_mode1_submode1_blobs(frame, params_mode1)
-                    
-                    # 2. Draw boxes on the live frame
-                    for i, (x, y, w, h) in enumerate(live_boxes):
-                        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 200, 80), 2)
-                        cv2.putText(frame, f"#{i + 1}", (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 80), 2)
-                    
-                    # 3. Add total count text
-                    cv2.putText(frame, f"Total: {len(live_boxes)}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
-                    
-                    # 4. Convert BGR to RGB for Streamlit and display it
-                    FRAME_WINDOW.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                
-                # Release the camera when the checkbox is unticked
-                cap.release()
+        if "current_file_mode1" not in st.session_state or st.session_state.current_file_mode1 != img_id:
+            st.session_state.current_file_mode1 = img_id
+            st.session_state.reset_version_mode1 += 1
+            st.rerun()
         
-# ======================================================================
-        # SUB-MODE 2: Color Picker (Browser Native)
-        # ======================================================================
-        else:
-            # 1. ADD A RESET COUNTER FOR THE WIDGET
-            if "picker_reset_counter" not in st.session_state:
-                st.session_state.picker_reset_counter = 0
-
-            if "selected_hsv_mode2" not in st.session_state:
-                st.session_state.selected_hsv_mode2 = None
-                
-            v = st.session_state.reset_version_mode1 if "reset_version_mode1" in st.session_state else 0
+        v = st.session_state.reset_version_mode1
+        
+        with st.sidebar:
+            st.header("⚙️ Parameters")
+            s_thresh = st.slider("Saturation threshold", 10, 120, 30, 5, key=f"sat_{v}")
+            b_size = st.slider("Blur size", 3, 31, 5, 2, key=f"blur_{v}")
+            a_block = st.slider("Adaptive block size", 11, 201, 61, 10, key=f"adapt_b_{v}")
+            a_c = st.slider("Adaptive C offset", 2, 25, 6, 1, key=f"adapt_c_{v}")
+            c_k = st.slider("Close kernel (px)", 3, 40, 11, 2, key=f"close_k_{v}")
+            c_iter = st.slider("Close iterations", 1, 5, 2, 1, key=f"close_i_{v}")
+            e_k = st.slider("Erode kernel (px)", 1, 25, 5, 2, key=f"erode_k_{v}")
+            m_area = st.slider("Min object area (px²)", 200, 30000, 1500, 200, key=f"min_a_{v}")
+            ma_ratio = st.slider("Max area ratio", 0.02, 0.90, 0.35, 0.01, key=f"max_r_{v}")
+            m_sol = st.slider("Min solidity", 0.10, 0.95, 0.35, 0.05, key=f"min_s_{v}")
+            m_ar = st.slider("Max aspect ratio", 1.0, 30.0, 15.0, 0.5, key=f"max_ar_{v}")
+            b_pad = st.slider("Box padding (px)", 0, 40, 8, 1, key=f"pad_{v}")
+        
+        params_mode1 = {
+            "sat_thresh": s_thresh, 
+            "blur": b_size, 
+            "adapt_block": a_block, 
+            "adapt_c": a_c,
+            "close_k": c_k, 
+            "close_iter": c_iter, 
+            "erode_k": e_k, 
+            "min_area": m_area,
+            "max_area_ratio": ma_ratio, 
+            "min_solidity": m_sol, 
+            "max_ar": m_ar, 
+            "box_pad": b_pad
+        }
+        
+        boxes, mask = count_objects_mode1_submode1_blobs(bgr_original, params_mode1)
+        
+        st.header("Results")
+        result = bgr_original.copy()
+        for i, (x, y, w, h) in enumerate(boxes):
+            cv2.rectangle(result, (x, y), (x + w, y + h), (0, 200, 80), 2)
+            cv2.putText(result, f"#{i + 1}", (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 80), 2)
+        
+        st.success(f"### TOTAL COUNT: {len(boxes)}")
+      
+        # --- NEW: Use two equal columns ---
+        col1, col2 = st.columns(2)
+        
+        # Left side: Always show the result image
+        with col1:
+            st.image(to_pil_rgb(result), caption=f"Count: {len(boxes)}", use_container_width=True)
             
-            with st.sidebar:
-                st.header("🎨 Color Picker Parameters")
-                h_tol = st.slider("H Tolerance", 0, 89, 15, key=f"mode2_h_tol_{v}")
-                s_tol = st.slider("S Tolerance", 0, 255, 60, key=f"mode2_s_tol_{v}")
-                v_tol = st.slider("V Tolerance", 0, 255, 60, key=f"mode2_v_tol_{v}")
-                
-                st.markdown("---")
-                min_area = st.slider("Min Area", 100, 5000, 300, 50, key=f"mode2_min_area_{v}")
-                gap_size = st.slider("Merge Gap", 1, 50, 1, 1, key=f"mode2_gap_{v}")
-                erode_iters = st.slider("Erosion", 0, 20, 0, 1, key=f"mode2_erode_{v}")
+        # Right side: Show checkbox, and if checked, show the mask!
+        with col2:
+            # if st.checkbox("Show foreground mask (debug)", key=f"debug_{v}"):
+            st.image(mask, caption="Processing Mask", use_container_width=True)
+        
+        st.markdown("---")
+        c1, c2 = st.columns(2)
+        
+        if c1.button("🔄 Reset Parameters", use_container_width=True):
+            trigger_reset_mode1()
+            st.rerun()
+        
+        # if c2.button("📄 Export JSON", use_container_width=True):
+        #     st.download_button("Download", json.dumps({"count": len(boxes)}), "count.json")
+        
+        if c2.button("ℹ️ Help", use_container_width=True):
+            st.info("Sliders update LIVE. Reset moves them back to defaults.")
             
-            st.header("🎯 Pick Object Color")
-            st.info("Click directly on the object in the image below to select its color.")
-            
-            # 2. USE THE COUNTER IN THE KEY
-            pil_img = Image.open(uploaded)
-            dynamic_key = f"color_picker_{st.session_state.picker_reset_counter}"
-            coords = streamlit_image_coordinates(pil_img, key=dynamic_key)
-            
-            if coords:
-                st.session_state.selected_hsv_mode2 = get_hsv_from_coords(bgr_original, coords["x"], coords["y"])
-            
-            if st.session_state.selected_hsv_mode2 is not None:
-                h, s, v_vals = st.session_state.selected_hsv_mode2
-                st.success(f"### ✅ Color Selected! (H: {h:.0f}, S: {s:.0f}, V: {v_vals:.0f})")
-                
-                boxes, mask, display_img_result = count_objects_mode1_submode2(
-                    bgr_original, h_tol, s_tol, v_tol, min_area, gap_size, erode_iters, st.session_state.selected_hsv_mode2
-                )
-                
-                st.markdown("---")
-                st.header("Results")
-                
-                # Show the total count prominently at the top
-                st.success(f"### TOTAL COUNT: {len(boxes)}")
-                
-                # Create two equal columns for the images
-                col_img1, col_img2 = st.columns(2)
-                
-                with col_img1:
-                    # Show the Result image with bounding boxes
-                    st.image(cv2.cvtColor(display_img_result, cv2.COLOR_BGR2RGB), 
-                            caption=f"Result (Count: {len(boxes)})", use_container_width=True)
-                
-                with col_img2:
-                    # Show the black & white Mask
-                    # Note: Streamlit automatically handles 1-channel arrays (like your mask) as grayscale
-                    st.image(mask, caption="Detection Mask", use_container_width=True)
-                
-                # Reset Button underneath
-                if st.button("🔄 Reset Color Selection", use_container_width=True):
-                    st.session_state.selected_hsv_mode2 = None
-                    st.session_state.picker_reset_counter += 1  # Forces the image widget to clear
-                    st.rerun()
-                        
-        # Cleanup logic (at the very bottom of your script)
         import os
         if 'temp_image_path' in locals() and os.path.exists(temp_image_path):
             try:
                 os.remove(temp_image_path)
             except:
                 pass
-    
+
     else:
-        st.info("📤 Upload an image to start.")
+        st.info("📤 Upload an image or take a photo to start.")
 
 # ==============================================================================
-# MODE 2: NCC TEMPLATE MATCHING
+# MODE 2: HSV COLOR SEGMENTATION
 # ==============================================================================
-else:
+elif main_mode == "HSV Color Segmentation with Contour":
+    
+    st.header("🎨 HSV Color Segmentation with Contour")
+    st.markdown("""
+    ### Instructions:
+    1. Select an image using the buttons below.
+    2. Click directly on an object in the image to pick its color.
+    3. Adjust the tolerance sliders in the sidebar to fine-tune the match.
+    """)
+    
+    st.markdown("---")
+    input_method = st.radio("📷 Choose Image Source:", ["📁 Upload File", "📸 Take a Photo"], horizontal=True, key="input_m2")
+    
+    uploaded = None
+    if input_method == "📁 Upload File":
+        uploaded = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg", "bmp", "webp"], key="file_m2")
+    else:
+        uploaded = st.camera_input("Take a picture", key="cam_m2")
+    
+    st.markdown("---")
+    if uploaded:
+        temp_image_path = f"temp_{uploaded.name}"
+        with open(temp_image_path, "wb") as f:
+            f.write(uploaded.getbuffer())
+        
+        bgr_original = to_bgr(Image.open(uploaded))
+        
+        if "picker_reset_counter" not in st.session_state:
+            st.session_state.picker_reset_counter = 0
+
+        if "selected_hsv_mode2" not in st.session_state:
+            st.session_state.selected_hsv_mode2 = None
+            
+        v = st.session_state.reset_version_mode1 if "reset_version_mode1" in st.session_state else 0
+        
+        with st.sidebar:
+            st.header("🎨 Color Picker Parameters")
+            h_tol = st.slider("H Tolerance", 0, 89, 15, key=f"mode2_h_tol_{v}")
+            s_tol = st.slider("S Tolerance", 0, 255, 60, key=f"mode2_s_tol_{v}")
+            v_tol = st.slider("V Tolerance", 0, 255, 60, key=f"mode2_v_tol_{v}")
+            
+            st.markdown("---")
+            min_area = st.slider("Min Area", 100, 5000, 300, 50, key=f"mode2_min_area_{v}")
+            gap_size = st.slider("Merge Gap", 1, 50, 1, 1, key=f"mode2_gap_{v}")
+            erode_iters = st.slider("Erosion", 0, 20, 0, 1, key=f"mode2_erode_{v}")
+        
+        st.header("🎯 Pick Object Color")
+        st.info("Click directly on the object in the image below to select its color.")
+        
+        pil_img = Image.open(uploaded)
+        dynamic_key = f"color_picker_{st.session_state.picker_reset_counter}"
+        coords = streamlit_image_coordinates(pil_img, key=dynamic_key)
+        
+        if coords:
+            st.session_state.selected_hsv_mode2 = get_hsv_from_coords(bgr_original, coords["x"], coords["y"])
+        
+        if st.session_state.selected_hsv_mode2 is not None:
+            h, s, v_vals = st.session_state.selected_hsv_mode2
+            st.success(f"### ✅ Color Selected! (H: {h:.0f}, S: {s:.0f}, V: {v_vals:.0f})")
+            
+            boxes, mask, display_img_result = count_objects_mode1_submode2(
+                bgr_original, h_tol, s_tol, v_tol, min_area, gap_size, erode_iters, st.session_state.selected_hsv_mode2
+            )
+            
+            st.markdown("---")
+            st.header("Results")
+            
+            st.success(f"### TOTAL COUNT: {len(boxes)}")
+            col_img1, col_img2 = st.columns(2)
+            
+            with col_img1:
+                st.image(cv2.cvtColor(display_img_result, cv2.COLOR_BGR2RGB), 
+                        caption=f"Result (Count: {len(boxes)})", use_container_width=True)
+            
+            with col_img2:
+                st.image(mask, caption="Detection Mask", use_container_width=True)
+            
+            if st.button("🔄 Reset Color Selection", use_container_width=True):
+                st.session_state.selected_hsv_mode2 = None
+                st.session_state.picker_reset_counter += 1  
+                st.rerun()
+                    
+        import os
+        if 'temp_image_path' in locals() and os.path.exists(temp_image_path):
+            try:
+                os.remove(temp_image_path)
+            except:
+                pass
+                
+    else:
+        st.info("📤 Upload an image or take a photo to start.")
+
+# ==============================================================================
+# MODE 3: NCC TEMPLATE MATCHING
+# ==============================================================================
+elif main_mode == "NCC Template Matching":
+    
     st.header("🔍 NCC Template Matching (Rotated Object Detection)")
     st.markdown("""
     ### Instructions:
-    1. Upload an image
+    1. Select an image using the buttons below
     2. Drag and resize the green box to highlight the object you want to count
     3. Adjust the threshold slider to filter matches
     4. Click 'Run Template Matching'
     """)
+    st.markdown("---")
+    input_method_2 = st.radio("📷 Choose Image Source:", ["📁 Upload File", "📸 Take a Photo"], horizontal=True, key="input_m3")
     
-    uploaded_teammate = st.file_uploader("Upload Image for NCC Matching", type=["png", "jpg", "jpeg", "bmp", "webp"], key="teammate_uploader")
+    uploaded_teammate = None
+    if input_method_2 == "📁 Upload File":
+        uploaded_teammate = st.file_uploader("Upload Image for NCC Matching", type=["png", "jpg", "jpeg", "bmp", "webp"], key="file_m3")
+    else:
+        uploaded_teammate = st.camera_input("Take a picture", key="cam_m3")
     
+    st.markdown("---")
     if uploaded_teammate:
-        # --- FIX 1: CLEAR OLD RESULTS WHEN A NEW IMAGE IS UPLOADED ---
-        if "last_uploaded_name" not in st.session_state or st.session_state.last_uploaded_name != uploaded_teammate.name:
-            st.session_state.last_uploaded_name = uploaded_teammate.name
-            # Delete old results from memory
+        
+        current_img_id = f"{uploaded_teammate.name}_{uploaded_teammate.size}"
+        
+        if "last_uploaded_name" not in st.session_state or st.session_state.last_uploaded_name != current_img_id:
+            st.session_state.last_uploaded_name = current_img_id
             st.session_state.pop("ncc_count", None)
             st.session_state.pop("ncc_result_img", None)
-        # ---------------------------------------------------------------
         
-        # Load image with PIL for the cropper
         pil_img = Image.open(uploaded_teammate)
         
-        col_crop, col_preview = st.columns([2, 1])
+        # --- NEW: Resize huge images so they fit in the cropper! ---
+        # --- UPDATE: Resize huge images checking BOTH width and height! ---
+        # --- RESIZE LOGIC ---
+        # Setting a smaller MAX_SIZE ensures it fits inside the column without horizontal scrolling
+        MAX_SIZE = 500  
+        pil_img.thumbnail((MAX_SIZE, MAX_SIZE), Image.Resampling.LANCZOS)
+        
+        # --- UPDATED COLUMNS ---
+        # We change the ratio from [2, 1] to [3, 1] or [4, 1] 
+        # This makes the "Select Template" area bigger and the "Preview" much smaller
+        col_crop, col_preview = st.columns([3, 1]) 
         
         with col_crop:
             st.subheader("Select Template")
-            
-            # --- FIX 2: DYNAMIC KEY FOR CROPPER TO RESET BOUNDING BOX ---
             dynamic_cropper_key = f"ncc_cropper_{st.session_state.last_uploaded_name}"
             
-            cropped_pil = st_cropper(
-                pil_img, 
-                realtime_update=True, 
-                box_color='#00FF00',
-                aspect_ratio=None,
-                key=dynamic_cropper_key
-            )
+            # We wrap this in a container to help Streamlit manage the width
+            with st.container():
+                cropped_pil = st_cropper(
+                    pil_img, 
+                    realtime_update=True, 
+                    box_color='#00FF00',
+                    aspect_ratio=None,
+                    key=dynamic_cropper_key
+                )
             
         with col_preview:
-            st.subheader("Template Preview")
-            st.image(cropped_pil, use_container_width=True)
+            st.subheader("Preview")
+            # We use a smaller fixed width here to keep the preview tiny
+            st.image(cropped_pil, caption="Selected", width=120) 
             
-            # Threshold slider
-            threshold = st.slider("Match Threshold", 0.0, 1.0, 0.68, 0.01, key="ncc_threshold")
+            # Move the threshold slider here if the sidebar feels too crowded
+            with st.sidebar:
+                st.header("⚙️ Parameters")
+                threshold = st.slider("Match Threshold", 0.0, 1.0, 0.68, 0.01, key="ncc_threshold")
         
         st.markdown("---")
         
@@ -611,7 +653,6 @@ else:
         with col_btn1:
             if st.button("🎯 Run Template Matching", type="primary", use_container_width=True):
                 with st.spinner("Processing... This might take a few seconds."):
-                    # Convert PIL images to OpenCV BGR format
                     img_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
                     template_bgr = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2BGR)
                     
@@ -620,7 +661,7 @@ else:
                     if status == "Success" and result_img is not None:
                         st.session_state.ncc_count = count
                         st.session_state.ncc_result_img = result_img
-                        st.rerun()  # <--- Forces screen to update instantly
+                        st.rerun()  
                     else:
                         st.error(status)
         
@@ -630,23 +671,17 @@ else:
                 st.session_state.ncc_result_img = None
                 st.rerun()
         
-        # Display results
         if st.session_state.get("ncc_count") is not None and st.session_state.get("ncc_result_img") is not None:
             st.markdown("---")
             st.header("Results")
             
-            col_res1, col_res2 = st.columns([2, 1])
-            with col_res1:
-                result_rgb = cv2.cvtColor(st.session_state.ncc_result_img, cv2.COLOR_BGR2RGB)
-                st.image(result_rgb, caption=f"Count: {st.session_state.ncc_count}", use_container_width=True)
-            with col_res2:
-                st.success(f"### TOTAL COUNT: {st.session_state.ncc_count}")
+     
+            st.success(f"### TOTAL COUNT: {st.session_state.ncc_count}")
+       
+            result_rgb = cv2.cvtColor(st.session_state.ncc_result_img, cv2.COLOR_BGR2RGB)
+            st.image(result_rgb, caption=f"Count: {st.session_state.ncc_count}", use_container_width=True)
+            
                 
-                if st.button("📄 Export JSON", use_container_width=True):
-                    st.download_button(
-                        "Download", 
-                        json.dumps({"count": st.session_state.ncc_count, "method": "NCC Template Matching"}), 
-                        "count.json"
-                    )
+            
     else:
-        st.info("📤 Upload an image to start NCC template matching.")
+        st.info("📤 Upload an image or take a photo to start NCC template matching.")
