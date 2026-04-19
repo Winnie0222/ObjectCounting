@@ -211,112 +211,54 @@ def count_objects_mode1_submode2(bgr_img, h_tol, s_tol, v_tol, min_area, gap_siz
 # ==============================================================================
 # MODE 2: NCC TEMPLATE MATCHING CODE
 # ==============================================================================
-def count_with_rotated_ncc_fast_filter_streamlit(img, template, threshold):
+def get_all_ncc_candidates(img, template):
     """
-    Updated to accept BGR images directly from Streamlit without popups.
+    Finds all potential matches across all scales and rotations.
+    Returns lists of rectangles and their scores.
     """
-    # --- PREPROCESS ---
     gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     gray_temp = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-    
-    # Get width and height from the pre-cropped template
     h, w = gray_temp.shape
 
     blurred_img = cv2.GaussianBlur(gray_img, (5, 5), 0)
     blurred_temp = cv2.GaussianBlur(gray_temp, (5, 5), 0)
 
-    # Search settings
     scales = np.linspace(0.8, 1.1, 5)
     angles = np.arange(0, 180, 15)
-
-    # Collection threshold
-    collection_threshold = 0.40
+    
+    # We use a low baseline to catch everything; we'll filter strictly later
+    baseline_threshold = 0.35 
 
     all_rects = []
     all_scores = []
 
     for scale in scales:
-        nw = int(w * scale)
-        nh = int(h * scale)
-
-        if nw < 10 or nh < 10:
-            continue
-
+        nw, nh = int(w * scale), int(h * scale)
+        if nw < 10 or nh < 10: continue
         scaled_t = cv2.resize(blurred_temp, (nw, nh))
 
         for angle in angles:
-            centre = (nw // 2, nh // 2)
-            M = cv2.getRotationMatrix2D(centre, angle, 1.0)
+            center = (nw // 2, nh // 2)
+            M = cv2.getRotationMatrix2D(center, angle, 1.0)
+            cos, sin = np.abs(M[0, 0]), np.abs(M[0, 1])
+            new_w, new_h = int((nh * sin) + (nw * cos)), int((nh * cos) + (nw * sin))
+            M[0, 2] += (new_w / 2) - center[0]
+            M[1, 2] += (new_h / 2) - center[1]
 
-            cos = np.abs(M[0, 0])
-            sin = np.abs(M[0, 1])
-            new_w = int((nh * sin) + (nw * cos))
-            new_h = int((nh * cos) + (nw * sin))
-
-            M[0, 2] += (new_w / 2) - centre[0]
-            M[1, 2] += (new_h / 2) - centre[1]
-
-            rotated_t = cv2.warpAffine(
-                scaled_t,
-                M,
-                (new_w, new_h),
-                flags=cv2.INTER_LINEAR,
-                borderMode=cv2.BORDER_REPLICATE
-            )
+            rotated_t = cv2.warpAffine(scaled_t, M, (new_w, new_h), 
+                                       flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
             if rotated_t.shape[0] > blurred_img.shape[0] or rotated_t.shape[1] > blurred_img.shape[1]:
                 continue
 
-            res = cv2.matchTemplate(
-                blurred_img,
-                rotated_t,
-                cv2.TM_CCOEFF_NORMED
-            )
-
-            loc = np.where(res >= collection_threshold)
+            res = cv2.matchTemplate(blurred_img, rotated_t, cv2.TM_CCOEFF_NORMED)
+            loc = np.where(res >= baseline_threshold)
 
             for pt in zip(*loc[::-1]):
                 all_rects.append([int(pt[0]), int(pt[1]), new_w, new_h])
                 all_scores.append(float(res[pt[1], pt[0]]))
 
-    # Apply NMS with user threshold
-    temp_img = img.copy()
-    count = 0
-
-    filtered_rects = []
-    filtered_scores = []
-
-    for rect, score in zip(all_rects, all_scores):
-        if score >= threshold:
-            filtered_rects.append(rect)
-            filtered_scores.append(score)
-
-    if len(filtered_rects) > 0:
-        indices = cv2.dnn.NMSBoxes(
-            bboxes=filtered_rects,
-            scores=filtered_scores,
-            score_threshold=threshold,
-            nms_threshold=0.2
-        )
-
-        if len(indices) > 0:
-            for i in indices.flatten():
-                rx, ry, rw, rh = filtered_rects[i]
-                cv2.rectangle(temp_img, (rx, ry), (rx + rw, ry + rh), (0, 255, 0), 2)
-                count += 1
-
-    cv2.putText(
-        temp_img,
-        f"Count: {count} (Threshold: {threshold:.2f})",
-        (30, 80),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1.2,
-        (0, 0, 255),
-        3
-    )
-
-    return count, temp_img, "Success"
-
+    return all_rects, all_scores
 
 # ==============================================================================
 # UI - MAIN MODE SELECTION
@@ -580,108 +522,98 @@ elif main_mode == "HSV Color Segmentation with Contour":
 # ==============================================================================
 # MODE 3: NCC TEMPLATE MATCHING
 # ==============================================================================
+# ==============================================================================
+# MODE 3: NCC TEMPLATE MATCHING (Exact Logic from Original Script)
+# ==============================================================================
 elif main_mode == "NCC Template Matching":
     
     st.header("🔍 NCC Template Matching (Rotated Object Detection)")
     st.markdown("""
     ### Instructions:
-    1. Select an image using the buttons below
-    2. Drag and resize the green box to highlight the object you want to count
-    3. Adjust the threshold slider to filter matches
-    4. Click 'Run Template Matching'
+    1. Select an image source.
+    2. Drag the green box to select your target template.
+    3. Click **'Run Deep Analysis'** (This runs the heavy loops once).
+    4. Adjust the **'Match Threshold'** slider (This works instantly like your ori script).
     """)
     st.markdown("---")
+    
     input_method_2 = st.radio("📷 Choose Image Source:", ["📁 Upload File", "📸 Take a Photo"], horizontal=True, key="input_m3")
     
     uploaded_teammate = None
     if input_method_2 == "📁 Upload File":
-        uploaded_teammate = st.file_uploader("Upload Image for NCC Matching", type=["png", "jpg", "jpeg", "bmp", "webp"], key="file_m3")
+        uploaded_teammate = st.file_uploader("Upload Image", type=["png", "jpg", "jpeg", "bmp", "webp"], key="file_m3")
     else:
         uploaded_teammate = st.camera_input("Take a picture", key="cam_m3")
     
-    st.markdown("---")
     if uploaded_teammate:
-        
+        # Unique ID to detect when a new image is uploaded and reset the candidate cache
         current_img_id = f"{uploaded_teammate.name}_{uploaded_teammate.size}"
-        
-        if "last_uploaded_name" not in st.session_state or st.session_state.last_uploaded_name != current_img_id:
+        if st.session_state.get("last_uploaded_name") != current_img_id:
             st.session_state.last_uploaded_name = current_img_id
-            st.session_state.pop("ncc_count", None)
-            st.session_state.pop("ncc_result_img", None)
+            st.session_state.ncc_candidates = None 
         
-        pil_img = Image.open(uploaded_teammate)
+        pil_img = Image.open(uploaded_teammate).convert("RGB")
         
-        # --- NEW: Resize huge images so they fit in the cropper! ---
-        # --- UPDATE: Resize huge images checking BOTH width and height! ---
-        # --- RESIZE LOGIC ---
-        # Setting a smaller MAX_SIZE ensures it fits inside the column without horizontal scrolling
-        MAX_SIZE = 500  
+        # UI Resize for the cropper tool
+        MAX_SIZE = 600  
         pil_img.thumbnail((MAX_SIZE, MAX_SIZE), Image.Resampling.LANCZOS)
         
-        # --- UPDATED COLUMNS ---
-        # We change the ratio from [2, 1] to [3, 1] or [4, 1] 
-        # This makes the "Select Template" area bigger and the "Preview" much smaller
         col_crop, col_preview = st.columns([3, 1]) 
-        
         with col_crop:
             st.subheader("Select Template")
-            dynamic_cropper_key = f"ncc_cropper_{st.session_state.last_uploaded_name}"
-            
-            # We wrap this in a container to help Streamlit manage the width
-            with st.container():
-                cropped_pil = st_cropper(
-                    pil_img, 
-                    realtime_update=True, 
-                    box_color='#00FF00',
-                    aspect_ratio=None,
-                    key=dynamic_cropper_key
-                )
+            cropped_pil = st_cropper(pil_img, realtime_update=True, box_color='#00FF00', aspect_ratio=None)
             
         with col_preview:
             st.subheader("Preview")
-            # We use a smaller fixed width here to keep the preview tiny
             st.image(cropped_pil, caption="Selected", width=120) 
-            
-            # Move the threshold slider here if the sidebar feels too crowded
-            with st.sidebar:
-                st.header("⚙️ Parameters")
-                threshold = st.slider("Match Threshold", 0.0, 1.0, 0.68, 0.01, key="ncc_threshold")
-        
+
         st.markdown("---")
         
-        col_btn1, col_btn2 = st.columns([2, 1])
-        with col_btn1:
-            if st.button("🎯 Run Template Matching", type="primary", use_container_width=True):
-                with st.spinner("Processing... This might take a few seconds."):
-                    img_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-                    template_bgr = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2BGR)
-                    
-                    count, result_img, status = count_with_rotated_ncc_fast_filter_streamlit(img_bgr, template_bgr, threshold)
-                    
-                    if status == "Success" and result_img is not None:
-                        st.session_state.ncc_count = count
-                        st.session_state.ncc_result_img = result_img
-                        st.rerun()  
-                    else:
-                        st.error(status)
-        
-        with col_btn2:
-            if st.button("🔄 Reset", use_container_width=True):
-                st.session_state.ncc_count = None
-                st.session_state.ncc_result_img = None
-                st.rerun()
-        
-        if st.session_state.get("ncc_count") is not None and st.session_state.get("ncc_result_img") is not None:
-            st.markdown("---")
-            st.header("Results")
-            
-     
-            st.success(f"### TOTAL COUNT: {st.session_state.ncc_count}")
-       
-            result_rgb = cv2.cvtColor(st.session_state.ncc_result_img, cv2.COLOR_BGR2RGB)
-            st.image(result_rgb, caption=f"Count: {st.session_state.ncc_count}", use_container_width=True)
-            
+        # --- PHASE 1: THE HEAVY PROCESSING (Original Script's loops) ---
+        if st.button("🎯 Step 1: Run Deep Analysis", type="primary", use_container_width=True):
+            with st.spinner("Processing... Gathering all possible matches (Rotations & Scales)"):
+                img_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+                template_bgr = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2BGR)
                 
+                # This function runs the EXACT nested loops for scales and angles
+                # and stores them in session state so they persist across slider changes.
+                all_rects, all_scores = get_all_ncc_candidates(img_bgr, template_bgr)
+                st.session_state.ncc_candidates = (all_rects, all_scores)
+                st.toast("Analysis Complete! Now use the slider below.")
+
+        # --- PHASE 2: INSTANT FILTERING (Original Script's trackbar logic) ---
+        # We place this OUTSIDE the button so it remains visible and interactive
+        if "ncc_candidates" in st.session_state and st.session_state.ncc_candidates:
+            all_rects, all_scores = st.session_state.ncc_candidates
             
+            st.subheader("Interactive Results")
+            # The slider acts exactly like your cv2.createTrackbar("Threshold", ...)
+            threshold = st.slider("Match Threshold", 0.0, 1.0, 0.70, 0.01)
+
+            # NMS is fast, so this part updates instantly when the slider moves
+            indices = cv2.dnn.NMSBoxes(
+                bboxes=all_rects,
+                scores=all_scores,
+                score_threshold=threshold,
+                nms_threshold=0.3
+            )
+
+            # Draw results on a fresh copy of the image
+            img_draw = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            count = 0
+            if len(indices) > 0:
+                for i in indices.flatten():
+                    rx, ry, rw, rh = all_rects[i]
+                    cv2.rectangle(img_draw, (rx, ry), (rx + rw, ry + rh), (0, 255, 0), 2)
+                    count += 1
+
+            st.success(f"### TOTAL COUNT: {count}")
+            result_rgb = cv2.cvtColor(img_draw, cv2.COLOR_BGR2RGB)
+            st.image(result_rgb, caption=f"Confidence Threshold: {threshold:.2f}", use_container_width=True)
+            
+            if st.button("🔄 Clear Analysis Cache", use_container_width=True):
+                st.session_state.ncc_candidates = None
+                st.rerun()
+                
     else:
         st.info("📤 Upload an image or take a photo to start NCC template matching.")
