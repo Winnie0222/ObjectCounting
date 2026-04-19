@@ -4,3 +4,4 @@ numpy
 Pillow
 streamlit-image-coordinates
 streamlit-cropper
+streamlit_option_menu
