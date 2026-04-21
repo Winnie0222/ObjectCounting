@@ -1365,24 +1365,24 @@ if main_mode == "Hybrid Multi-Threshold Segmentation with Blob Analysis":
         
         # Left side: Always show the result image
         with col1:
-            st.image(to_pil_rgb(result), caption=f"Count: {len(boxes)}", use_container_width=True)
+            st.image(to_pil_rgb(result), caption=f"Count: {len(boxes)}", width='stretch')
             
         # Right side: Show checkbox, and if checked, show the mask!
         with col2:
             # if st.checkbox("Show foreground mask (debug)", key=f"debug_{v}"):
-            st.image(mask, caption="Processing Mask", use_container_width=True)
+            st.image(mask, caption="Processing Mask", width='stretch')
         
         st.markdown("---")
         c1, c2 = st.columns(2)
         
-        if c1.button("🔄 Reset Parameters", use_container_width=True):
+        if c1.button("🔄 Reset Parameters", width='stretch'):
             trigger_reset_mode1()
             st.rerun()
         
-        # if c2.button("📄 Export JSON", use_container_width=True):
+        # if c2.button("📄 Export JSON", width='stretch'):
         #     st.download_button("Download", json.dumps({"count": len(boxes)}), "count.json")
         
-        if c2.button("ℹ️ Help", use_container_width=True):
+        if c2.button("ℹ️ Help", width='stretch'):
             st.info("Sliders update LIVE. Reset moves them back to defaults.")
             
         import os
@@ -1470,12 +1470,12 @@ elif main_mode == "HSV Color Segmentation with Contour":
             
             with col_img1:
                 st.image(cv2.cvtColor(display_img_result, cv2.COLOR_BGR2RGB), 
-                        caption=f"Result (Count: {len(boxes)})", use_container_width=True)
+                        caption=f"Result (Count: {len(boxes)})", width='stretch')
             
             with col_img2:
-                st.image(mask, caption="Detection Mask", use_container_width=True)
+                st.image(mask, caption="Detection Mask", width='stretch')
             
-            if st.button("🔄 Reset Color Selection", use_container_width=True):
+            if st.button("🔄 Reset Color Selection", width='stretch'):
                 st.session_state.selected_hsv_mode2 = None
                 st.session_state.picker_reset_counter += 1  
                 st.rerun()
@@ -1538,7 +1538,7 @@ elif main_mode == "NCC Template Matching":
         st.markdown("---")
         
         # --- PHASE 1: THE HEAVY PROCESSING (Original Script's loops) ---
-        if st.button("🎯 Step 1: Run Deep Analysis", type="primary", use_container_width=True):
+        if st.button("🎯 Step 1: Run Deep Analysis", type="primary", width='stretch'):
             with st.spinner("Processing... Gathering all possible matches (Rotations & Scales)"):
                 img_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
                 template_bgr = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2BGR)
@@ -1577,9 +1577,9 @@ elif main_mode == "NCC Template Matching":
 
             st.success(f"### TOTAL COUNT: {count}")
             result_rgb = cv2.cvtColor(img_draw, cv2.COLOR_BGR2RGB)
-            st.image(result_rgb, caption=f"Confidence Threshold: {threshold:.2f}", use_container_width=True)
+            st.image(result_rgb, caption=f"Confidence Threshold: {threshold:.2f}", width='stretch')
             
-            if st.button("🔄 Clear Analysis Cache", use_container_width=True):
+            if st.button("🔄 Clear Analysis Cache", width='stretch'):
                 st.session_state.ncc_candidates = None
                 st.rerun()
                 
@@ -1634,7 +1634,7 @@ elif main_mode == "Watershed Segmentation":
             pil_img = Image.open(uploaded_ws).convert("RGB")
             img_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         pil = to_pil_watershed(img_bgr)
-        st.image(pil, caption="Original", use_container_width=False)
+        st.image(pil, caption="Original", width='content')
         current_ws_file = f"{getattr(uploaded_ws, 'name', 'camera')}_{getattr(uploaded_ws, 'size', 0)}"
         if st.session_state.get("ws_last_file") != current_ws_file:
             st.session_state["ws_last_file"] = current_ws_file
@@ -1654,7 +1654,7 @@ elif main_mode == "Watershed Segmentation":
 
         col_ws_s1, col_ws_s2 = st.columns(2)
         with col_ws_s1:
-            if st.button("✅ Use Current Crop as Sample", use_container_width=True, key="ws_use_sample"):
+            if st.button("✅ Use Current Crop as Sample", width='stretch', key="ws_use_sample"):
                 sample_np = np.array(sample_crop)
                 if sample_np.size > 0 and sample_np.shape[0] > 1 and sample_np.shape[1] > 1:
                     sample_box_found = locate_crop_box_in_image(img_bgr, sample_crop)
@@ -1667,7 +1667,7 @@ elif main_mode == "Watershed Segmentation":
                     st.warning("Invalid sample crop. Please crop one object properly.")
 
         with col_ws_s2:
-            if st.button("🔄 Reset Sample", use_container_width=True, key="ws_reset_sample"):
+            if st.button("🔄 Reset Sample", width='stretch', key="ws_reset_sample"):
                 st.session_state.pop("ws_sample_img", None)
                 st.session_state.pop("ws_sample_box", None)
                 st.rerun()
@@ -1682,7 +1682,7 @@ elif main_mode == "Watershed Segmentation":
         st.image(
             to_pil_watershed(preview),
             caption=f"Selected Sample (Blue) — {sw} × {sh} px",
-            use_container_width=False
+            width='content'
         )
         st.markdown("---")
 
@@ -1706,7 +1706,7 @@ elif main_mode == "Watershed Segmentation":
 
             col_ws_c1, col_ws_c2 = st.columns(2)
             with col_ws_c1:
-                if st.button("✅ Use Current Crop as Counting Region", use_container_width=True, key="ws_use_count_roi"):
+                if st.button("✅ Use Current Crop as Counting Region", width='stretch', key="ws_use_count_roi"):
                     count_np = np.array(count_crop)
                     if count_np.size > 0 and count_np.shape[0] > 1 and count_np.shape[1] > 1:
                         count_box_found = locate_crop_box_in_image(img_bgr, count_crop)
@@ -1719,7 +1719,7 @@ elif main_mode == "Watershed Segmentation":
                         st.warning("Invalid counting region crop.")
 
             with col_ws_c2:
-                if st.button("🔄 Reset Counting Region", use_container_width=True, key="ws_reset_count_roi"):
+                if st.button("🔄 Reset Counting Region", width='stretch', key="ws_reset_count_roi"):
                     st.session_state.pop("ws_count_img", None)
                     st.session_state.pop("ws_count_roi", None)
                     st.rerun()
@@ -1736,7 +1736,7 @@ elif main_mode == "Watershed Segmentation":
             st.image(
                 to_pil_watershed(preview2),
                 caption="Yellow = counting region | Blue = sample",
-                use_container_width=False
+                width='content'
             )
         st.markdown("---")
 
@@ -2095,7 +2095,7 @@ elif main_mode == "Watershed Segmentation":
 
         st.image(to_pil_watershed(output),
                  caption=f"✅  Detected: {count}  |  Blue = sample  |  Green = detected",
-                 use_container_width=False)
+                 width='content')
         
         col_a, col_b, col_c = st.columns(3)
         col_a.metric("Objects Detected", count)
@@ -2106,7 +2106,7 @@ elif main_mode == "Watershed Segmentation":
             debug_preview = proc_img.copy()
             lsx, lsy, lsw, lsh = local_sample_box
             cv2.rectangle(debug_preview, (lsx, lsy), (lsx + lsw, lsy + lsh), (255, 0, 0), 2)
-            st.image(to_pil_watershed(debug_preview), caption="Count Region Preview with Local Sample", use_container_width=False)
+            st.image(to_pil_watershed(debug_preview), caption="Count Region Preview with Local Sample", width='content')
             st.markdown("### A. Foreground Understanding")
             fg_overlay = overlay_mask_on_image(proc_img, fg_mask, color=(0, 255, 0), alpha=0.35)
             fg_used_overlay = overlay_mask_on_image(proc_img, fg_mask_used, color=(255, 255, 0), alpha=0.35)
@@ -2114,14 +2114,14 @@ elif main_mode == "Watershed Segmentation":
             
             col1, col2 = st.columns(2)
             with col1:
-                st.image(to_pil_watershed(fg_overlay), caption="Foreground Overlay on Count Region", use_container_width=True)
+                st.image(to_pil_watershed(fg_overlay), caption="Foreground Overlay on Count Region", width='stretch')
                 st.image((fg_mask > 0).astype(np.uint8) * 255,
                     caption="Binary Foreground Mask",
-                    use_container_width=True,
+                    width='stretch',
                     clamp=True)
             with col2:
-                st.image(to_pil_watershed(fg_used_overlay), caption="Foreground Used for Watershed", use_container_width=True)
-                st.image(to_pil_watershed(fg_boxes_overlay), caption="Foreground Connected Components", use_container_width=True)
+                st.image(to_pil_watershed(fg_used_overlay), caption="Foreground Used for Watershed", width='stretch')
+                st.image(to_pil_watershed(fg_boxes_overlay), caption="Foreground Connected Components", width='stretch')
             
             if effective_same_color and sep_mask is not None:
                 st.markdown("### B. Same-Color Separation")
@@ -2131,10 +2131,10 @@ elif main_mode == "Watershed Segmentation":
                 with col3:
                     st.image((sep_mask > 0).astype(np.uint8) * 255,
                         caption="Binary Separation Mask",
-                        use_container_width=True,
+                        width='stretch',
                         clamp=True)
                 with col4:
-                    st.image(to_pil_watershed(sep_overlay), caption="Separator Lines on Real Image", use_container_width=True)
+                    st.image(to_pil_watershed(sep_overlay), caption="Separator Lines on Real Image", width='stretch')
             
             if markers is not None:
                 st.markdown("### C. Watershed Result")
@@ -2150,9 +2150,9 @@ elif main_mode == "Watershed Segmentation":
                 
                 col5, col6 = st.columns(2)
                 with col5:
-                    st.image(markers_viz, caption="Watershed Colored Regions", use_container_width=True)
+                    st.image(markers_viz, caption="Watershed Colored Regions", width='stretch')
                 with col6:
-                    st.image(to_pil_watershed(markers_boxes), caption="Validated Watershed Boxes", use_container_width=True)
+                    st.image(to_pil_watershed(markers_boxes), caption="Validated Watershed Boxes", width='stretch')
             
             st.markdown("### D. Candidate Summary")
 
@@ -2161,9 +2161,9 @@ elif main_mode == "Watershed Segmentation":
             
             col7, col8 = st.columns(2)
             with col7:
-                st.image(to_pil_watershed(blob_overlay), caption="Blob Split Candidates", use_container_width=True)
+                st.image(to_pil_watershed(blob_overlay), caption="Blob Split Candidates", width='stretch')
             with col8:
-                st.image(to_pil_watershed(touch_overlay), caption="Touching-Blob Marker Candidates", use_container_width=True)
+                st.image(to_pil_watershed(touch_overlay), caption="Touching-Blob Marker Candidates", width='stretch')
             fg_ratio = cv2.countNonZero(fg_mask_used) / (fg_mask_used.shape[0] * fg_mask_used.shape[1] + 1e-6)
             st.write(f"Foreground ratio: **{fg_ratio:.3f}**")
             st.write(f"Raw fg nonzero: **{cv2.countNonZero(fg_mask)}**")
@@ -2187,9 +2187,9 @@ elif main_mode == "Watershed Segmentation":
             cand_overlay = make_candidate_overlay(proc_img, region_boxes, color=(0, 255, 255), label_prefix="W")
             blob_overlay = make_candidate_overlay(proc_img, blob_boxes, color=(255, 165, 0), label_prefix="B")
             touch_overlay = make_candidate_overlay(proc_img, touching_boxes, color=(255, 0, 255), label_prefix="T")
-            st.image(to_pil_watershed(cand_overlay), caption="Validated Watershed Boxes (yellow)", use_container_width=False)
-            st.image(to_pil_watershed(blob_overlay), caption="Blob Split Candidates (orange)", use_container_width=False)
-            st.image(to_pil_watershed(touch_overlay), caption="Touching-Blob Marker Split Candidates (magenta)", use_container_width=False)
+            st.image(to_pil_watershed(cand_overlay), caption="Validated Watershed Boxes (yellow)", width='content')
+            st.image(to_pil_watershed(blob_overlay), caption="Blob Split Candidates (orange)", width='content')
+            st.image(to_pil_watershed(touch_overlay), caption="Touching-Blob Marker Split Candidates (magenta)", width='content')
             
             if markers is not None:
                 st.markdown("### Watershed Label Statistics")
